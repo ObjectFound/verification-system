@@ -1,0 +1,30 @@
+{
+  "name": "discord-verifier-bot",
+  "version": "1.0.0",
+  "description": "A simple Discord verification bot",
+  "main": "index.js",
+  "engines": {
+    "node": ">=16.9.0"
+  },
+  "scripts": {
+    "start:bot": "node index.js",
+    "start:web": "node server.js",
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "@discordjs/rest": "^1.6.0",
+    "discord-api-types": "^0.37.46",
+    "discord.js": "^14.15.0",
+    "dotenv": "^17.2.0",
+    "express": "^5.1.0",
+    "pg": "^8.16.3",
+    "sqlite3": "^5.1.6"
+  },
+  "overrides": {
+    "glob": "^9.3.3",
+    "rimraf": "^4.5.1",
+    "npmlog": "^7.0.1",
+    "are-we-there-yet": "^4.0.3",
+    "inflight": "^1.0.7"
+  }
+}
