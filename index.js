@@ -106,30 +106,38 @@ client.once('ready', async () => {
 client.on('interactionCreate', async interaction => {
     if (!interaction.isCommand() || interaction.commandName !== 'verify') return;
 
+    // --- The Fix Starts Here ---
+
+    // 1. Defer the reply immediately. This tells Discord "I'm working on it"
+    // and gives us 15 minutes to respond. This reply is also ephemeral.
+    await interaction.deferReply({ ephemeral: true });
+
+    // --- End of Fix ---
+
     const user = interaction.user;
     console.log(`[BOT] /verify command used by ${user.tag} (${user.id}).`);
 
     try {
         // Construct the unique link and send it to the user's DMs
-        const verificationLink = `${GAME_URL}?userId=${user.id}`;
+        const verificationLink = `${GAME_URL}?userId=${user.id}&discordUsername=${encodeURIComponent(user.username)}`;
         await user.send(
             `Hello! To verify your account, please complete the task at the following link:\n\n` +
             `${verificationLink}\n\n` +
             `After the in-game step is complete, come back to this DM and reply with the word \`DONE\`.`
         );
 
-        // Send a temporary confirmation message in the channel
-        await interaction.reply({
-            content: 'I have sent you a DM with your personal verification link. Please check your messages!',
-            // The fix is here: replaced 'ephemeral: true' with the 'flags' property
-            flags: 64 
+        // Send a temporary confirmation message in the channel using followUp
+        // We use followUp because we have already deferred the initial reply.
+        await interaction.followUp({
+            content: 'I have sent you a DM with your personal verification link. Please check your messages!'
         });
     } catch (error) {
+        // This block now runs if the bot truly cannot DM the user (e.g., DMs are disabled)
         console.error(`[BOT] Could not send DM to ${user.tag}.`, error);
-        await interaction.reply({
-            content: 'I could not send you a DM. Please enable "Allow direct messages from server members" in your User Settings > Privacy & Safety, then try the command again.',
-            // The fix is here as well
-            flags: 64
+
+        // We use followUp here as well.
+        await interaction.followUp({
+            content: 'I could not send you a DM. Please enable "Allow direct messages from server members" in your User Settings > Privacy & Safety, then try the command again.'
         });
     }
 });
