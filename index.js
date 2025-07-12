@@ -67,24 +67,24 @@ app.get('/', (req, res) => {
 // The endpoint your Roblox game sends the POST request to
 app.post('/verify-ingame', async (req, res) => {
     const { discordUserId } = req.body;
+    if (!discordUserId) return res.status(400).send({ error: 'Discord User ID is required.' });
 
-    if (!discordUserId) {
-        return res.status(400).send({ error: 'Discord User ID is required.' });
-    }
-
-    console.log(`[WEB] Received in-game verification request for user ID: ${discordUserId}`);
+    // DEBUG: Acknowledge that the "Yes" button was clicked in Roblox
+    console.log(`[WEB - STEP 2/4] In-game "Yes" button clicked. Received request for user ID: ${discordUserId}`);
 
     try {
         await rest.delete(Routes.guildMember(GUILD_ID, discordUserId), {
             reason: 'Verification: Kicked by in-game confirmation.',
         });
-        console.log(`[WEB] Successfully initiated kick for user ID: ${discordUserId}`);
+        // DEBUG: Confirm the kick command was sent successfully
+        console.log(`[WEB - STEP 2/4] Successfully sent kick command to Discord for user ID: ${discordUserId}`);
         res.status(200).send({ message: 'User kick initiated successfully.' });
     } catch (error) {
         console.error(`[WEB] Failed to kick user ${discordUserId}:`, error.message);
-        res.status(500).send({ error: 'An internal server error occurred while trying to kick the user.' });
+        res.status(500).send({ error: 'An internal server error occurred.' });
     }
 });
+
 
 // =================================================================
 // SECTION 3: DISCORD BOT SETUP
@@ -116,7 +116,8 @@ client.on('interactionCreate', async interaction => {
     await interaction.deferReply({ ephemeral: true });
     
     const user = interaction.user;
-    console.log(`[BOT] /verify command used by ${user.tag} (${user.id}).`);
+    // DEBUG: A user has started the process
+    console.log(`[BOT - STEP 1/4] /verify command executed by ${user.tag} (${user.id}).`);
 
     try {
         // Correctly format the launch data for Roblox
@@ -128,15 +129,15 @@ client.on('interactionCreate', async interaction => {
         const verificationLink = `https://www.roblox.com/games/start?placeId=${ROBLOX_PLACE_ID}&launchData=${encodedLaunchData}`;
 
         await user.send(
-            `Hello! To verify your account, please complete the task at the link below:\n\n` +
+            `Hello! Please complete the task at the link below:\n\n` +
             `${verificationLink}\n\n` +
-            `After the in-game step, come back here and reply with the word \`DONE\`.`
+            `After the in-game step, reply here with the word \`DONE\`.`
         );
 
         await interaction.followUp({ content: 'I have sent you a DM with your personal verification link!' });
     } catch (error) {
         console.error(`[BOT] Could not send DM to ${user.tag}.`, error);
-        await interaction.followUp({ content: 'I could not send you a DM. Please check your privacy settings and try again.' });
+        await interaction.followUp({ content: 'I could not send you a DM. Please check your privacy settings.' });
     }
 });
 
@@ -145,7 +146,8 @@ client.on('messageCreate', async message => {
 
     if (message.content.trim().toUpperCase() === 'DONE') {
         const user = message.author;
-        console.log(`[BOT] Received 'DONE' from ${user.tag} (${user.id}).`);
+        // DEBUG: The user has replied "DONE" after being kicked
+        console.log(`[BOT - STEP 3/4] Received 'DONE' from ${user.tag} (${user.id}).`);
 
         try {
             const guild = await client.guilds.fetch(GUILD_ID);
@@ -154,14 +156,15 @@ client.on('messageCreate', async message => {
             if (member) {
                 await member.roles.add(VERIFIED_ROLE_ID);
                 await pool.query('INSERT INTO verified_users (user_id, verified_status) VALUES ($1, TRUE) ON CONFLICT (user_id) DO UPDATE SET verified_status = TRUE, timestamp = NOW()', [user.id]);
-                console.log(`[BOT] Successfully verified and assigned role to ${user.tag}.`);
+                // DEBUG: Final confirmation of success
+                console.log(`[BOT - STEP 4/4] Verification complete! Assigned role to ${user.tag}.`);
                 await user.send('✅ **Verification Successful!** You now have access to the server. Welcome!');
             } else {
-                await user.send('I could not find you in the server. Please make sure you have rejoined the server before sending `DONE`.');
+                await user.send('I could not find you in the server. Please ensure you have rejoined before sending `DONE`.');
             }
         } catch (error) {
-            console.error(`[BOT] An error occurred during the final verification step for ${user.tag}:`, error);
-            await user.send('An unexpected error occurred. Please contact an administrator for help.');
+            console.error(`[BOT] Error during final verification for ${user.tag}:`, error);
+            await user.send('An unexpected error occurred. Please contact an admin.');
         }
     }
 });
