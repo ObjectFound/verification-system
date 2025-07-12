@@ -1,2 +1,9 @@
+# Dependencies - to be installed on the server
 node_modules/
+
+# Environment variables - will be set on Render's dashboard
 .env
+
+# Local database files
+*.db
+verification.db
