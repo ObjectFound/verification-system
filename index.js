@@ -121,13 +121,15 @@ client.on('interactionCreate', async interaction => {
         // Send a temporary confirmation message in the channel
         await interaction.reply({
             content: 'I have sent you a DM with your personal verification link. Please check your messages!',
-            ephemeral: true,
+            // The fix is here: replaced 'ephemeral: true' with the 'flags' property
+            flags: 64 
         });
     } catch (error) {
         console.error(`[BOT] Could not send DM to ${user.tag}.`, error);
         await interaction.reply({
             content: 'I could not send you a DM. Please enable "Allow direct messages from server members" in your User Settings > Privacy & Safety, then try the command again.',
-            ephemeral: true
+            // The fix is here as well
+            flags: 64
         });
     }
 });
