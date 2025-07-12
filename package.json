@@ -7,8 +7,6 @@
     "node": ">=16.9.0"
   },
   "scripts": {
-    "start:bot": "node index.js",
-    "start:web": "node server.js",
     "start": "node index.js"
   },
   "dependencies": {
