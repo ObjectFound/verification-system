@@ -1,32 +1,40 @@
 // index.js (Combined Bot and Web Server - FINAL VERSION)
+
+// --- Load Environment Variables ---
+// Must be at the very top of the file
 require('dotenv').config();
 
 // --- Dependencies ---
 const express = require('express');
 const { Client, GatewayIntentBits, Partials, REST, Routes } = require('discord.js');
-const { Pool } = require('pg');
+const { Pool } = require('pg'); // PostgreSQL driver
 
-// --- Environment Variables ---
+// --- Environment Variables & Configuration ---
+// These MUST be set in your Render environment variables dashboard
 const TOKEN = process.env.DISCORD_TOKEN;
 const GUILD_ID = process.env.GUILD_ID;
 const VERIFIED_ROLE_ID = process.env.VERIFIED_ROLE_ID;
 const DATABASE_URL = process.env.DATABASE_URL;
-const ROBLOX_PLACE_ID = process.env.ROBLOX_PLACE_ID; // We now need the Place ID
-const PORT = process.env.PORT || 3000;
+const ROBLOX_PLACE_ID = process.env.ROBLOX_PLACE_ID; // The ID of your game's start place
+const PORT = process.env.PORT || 3000; // Render provides the PORT variable automatically
 
+// Critical check to ensure the application doesn't start with missing configuration
 if (!TOKEN || !GUILD_ID || !VERIFIED_ROLE_ID || !DATABASE_URL || !ROBLOX_PLACE_ID) {
-    console.error("FATAL ERROR: Missing one or more required environment variables (including ROBLOX_PLACE_ID).");
-    process.exit(1);
+    console.error("FATAL ERROR: Missing one or more required environment variables (Did you set ROBLOX_PLACE_ID?).");
+    process.exit(1); // Exit if configuration is incomplete
 }
 
 // =================================================================
-// DATABASE SETUP
+// SECTION 1: DATABASE SETUP
 // =================================================================
 const pool = new Pool({
     connectionString: DATABASE_URL,
-    ssl: { rejectUnauthorized: false },
+    ssl: {
+        rejectUnauthorized: false, // Required for Render's free PostgreSQL tier
+    },
 });
 
+// Function to create the database table if it doesn't already exist
 const ensureTableExists = async () => {
     const createTableQuery = `
       CREATE TABLE IF NOT EXISTS verified_users (
@@ -39,43 +47,71 @@ const ensureTableExists = async () => {
         await pool.query(createTableQuery);
         console.log('[DB] Table "verified_users" is ready.');
     } catch (err) {
-        console.error('[DB] Error creating database table:', err);
-        process.exit(1);
+        console.error('[DB] FATAL: Error creating database table:', err);
+        process.exit(1); // Exit if the bot can't connect to or set up the DB
     }
 };
 
-
 // =================================================================
-// EXPRESS WEB SERVER SETUP
+// SECTION 2: EXPRESS WEB SERVER SETUP
 // =================================================================
 const app = express();
-app.use(express.json());
+app.use(express.json()); // Middleware to parse incoming JSON requests
 const rest = new REST({ version: '10' }).setToken(TOKEN);
 
+// Health check endpoint. You can visit your Render URL to see this message.
 app.get('/', (req, res) => {
     res.status(200).send('Verification system web server is online.');
 });
 
+// The endpoint your Roblox game sends the POST request to
 app.post('/verify-ingame', async (req, res) => {
-    // ... (This section is already correct, no changes needed)
+    const { discordUserId } = req.body;
+
+    if (!discordUserId) {
+        return res.status(400).send({ error: 'Discord User ID is required.' });
+    }
+
+    console.log(`[WEB] Received in-game verification request for user ID: ${discordUserId}`);
+
+    try {
+        await rest.delete(Routes.guildMember(GUILD_ID, discordUserId), {
+            reason: 'Verification: Kicked by in-game confirmation.',
+        });
+        console.log(`[WEB] Successfully initiated kick for user ID: ${discordUserId}`);
+        res.status(200).send({ message: 'User kick initiated successfully.' });
+    } catch (error) {
+        console.error(`[WEB] Failed to kick user ${discordUserId}:`, error.message);
+        res.status(500).send({ error: 'An internal server error occurred while trying to kick the user.' });
+    }
 });
 
-
 // =================================================================
-// DISCORD BOT SETUP
+// SECTION 3: DISCORD BOT SETUP
 // =================================================================
 const client = new Client({
-    intents: [ /* ... a lot of intents ... */ ],
+    intents: [
+        GatewayIntentBits.Guilds,
+        GatewayIntentBits.GuildMessages,
+        GatewayIntentBits.DirectMessages,
+        GatewayIntentBits.MessageContent,
+    ],
     partials: [Partials.Channel],
 });
 
 client.once('ready', async () => {
     console.log(`[BOT] Logged in as ${client.user.tag}!`);
-    // ... (command registration logic)
+    const commands = [{ name: 'verify', description: 'Starts the verification process.' }];
+    try {
+        await rest.put(Routes.applicationGuildCommands(client.user.id, GUILD_ID), { body: commands });
+        console.log('[BOT] Successfully reloaded application (/) commands.');
+    } catch (error) {
+        console.error('[BOT] Failed to reload application commands:', error);
+    }
 });
 
 client.on('interactionCreate', async interaction => {
-    if (!interaction.isCommand() || !interaction.commandName === 'verify') return;
+    if (!interaction.isCommand() || interaction.commandName !== 'verify') return;
 
     await interaction.deferReply({ ephemeral: true });
     
@@ -83,14 +119,13 @@ client.on('interactionCreate', async interaction => {
     console.log(`[BOT] /verify command used by ${user.tag} (${user.id}).`);
 
     try {
-        // --- THIS IS THE ROBLOX LINK FIX ---
+        // Correctly format the launch data for Roblox
         const launchData = {
             discordUserId: user.id,
             discordUsername: user.username
         };
         const encodedLaunchData = encodeURIComponent(JSON.stringify(launchData));
         const verificationLink = `https://www.roblox.com/games/start?placeId=${ROBLOX_PLACE_ID}&launchData=${encodedLaunchData}`;
-        // --- END OF FIX ---
 
         await user.send(
             `Hello! To verify your account, please complete the task at the link below:\n\n` +
@@ -100,26 +135,50 @@ client.on('interactionCreate', async interaction => {
 
         await interaction.followUp({ content: 'I have sent you a DM with your personal verification link!' });
     } catch (error) {
-        await interaction.followUp({ content: 'I could not send you a DM. Please check your privacy settings.' });
+        console.error(`[BOT] Could not send DM to ${user.tag}.`, error);
+        await interaction.followUp({ content: 'I could not send you a DM. Please check your privacy settings and try again.' });
     }
 });
 
 client.on('messageCreate', async message => {
-    // ... (This section is already correct, no changes needed)
+    if (message.author.bot || message.guild) return;
+
+    if (message.content.trim().toUpperCase() === 'DONE') {
+        const user = message.author;
+        console.log(`[BOT] Received 'DONE' from ${user.tag} (${user.id}).`);
+
+        try {
+            const guild = await client.guilds.fetch(GUILD_ID);
+            const member = await guild.members.fetch(user.id).catch(() => null);
+
+            if (member) {
+                await member.roles.add(VERIFIED_ROLE_ID);
+                await pool.query('INSERT INTO verified_users (user_id, verified_status) VALUES ($1, TRUE) ON CONFLICT (user_id) DO UPDATE SET verified_status = TRUE, timestamp = NOW()', [user.id]);
+                console.log(`[BOT] Successfully verified and assigned role to ${user.tag}.`);
+                await user.send('✅ **Verification Successful!** You now have access to the server. Welcome!');
+            } else {
+                await user.send('I could not find you in the server. Please make sure you have rejoined the server before sending `DONE`.');
+            }
+        } catch (error) {
+            console.error(`[BOT] An error occurred during the final verification step for ${user.tag}:`, error);
+            await user.send('An unexpected error occurred. Please contact an administrator for help.');
+        }
+    }
 });
 
-
 // =================================================================
-// APPLICATION STARTUP
+// SECTION 4: APPLICATION STARTUP
 // =================================================================
 const startApp = async () => {
-    // --- THIS IS THE DATABASE FIX ---
     // Ensure the database table exists BEFORE starting the bot or server
     await ensureTableExists();
-    // --- END OF FIX ---
 
+    // Start the web server to listen for requests from Roblox
     app.listen(PORT, () => console.log(`[WEB] Web server listening on port ${PORT}`));
+
+    // Start the Discord bot by logging in
     client.login(TOKEN);
 };
 
+// Run the application
 startApp();
